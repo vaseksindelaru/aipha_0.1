@@ -27,7 +27,7 @@ import traceback
 
 # Ajuste de path para importar desde el módulo padre
 sys.path.append(os.path.abspath(os.path.dirname(__file__)))
-from detect_candle import Detector
+from detect_candles import Detector
 
 class DetectionResultSaver:
     """

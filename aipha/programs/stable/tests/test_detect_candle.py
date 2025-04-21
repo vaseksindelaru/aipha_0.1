@@ -10,7 +10,7 @@ import os
 
 # Ajuste de path para importar desde el módulo padre
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from detect_candle import Detector
+from detect_candles import Detector
 
 def create_sample_data(num_candles=100):
     np.random.seed(42)

@@ -6,7 +6,7 @@ Ubicación: aipha/programs/stable/tests/test_csv_detect_candle.py
 import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from detect_candle import Detector
+from detect_candles import Detector
 
 def main():
     print("Testing Shakeout Strategy Detector with real CSV data...")
