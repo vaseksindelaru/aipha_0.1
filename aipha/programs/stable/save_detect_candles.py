@@ -63,48 +63,116 @@ class DetectionResultSaver:
             self.connection.close()
             print("Database connection closed.")
 
-    def save_results(self, results, detection_params, table_name='shakeout_key_candles'):
+    def save_results(self, results, detection_params, tables):
+        """
+        Guarda los resultados en cada tabla de la lista 'tables'.
+        - Si la tabla es 'detection_sessions', guarda solo una fila con los parámetros de la sesión y la fecha/hora.
+        - Las otras tablas reciben los resultados completos de velas.
+        Si la tabla existe, detecta sus columnas y solo inserta los campos que existan.
+        Si no existe, la crea con la estructura estándar.
+        """
+        from datetime import datetime
         if not self.connection or not self.connection.is_connected():
             print("Not connected to database.")
             return False
         try:
-            # Crea tabla si no existe
-            create_table_query = f"""
-            CREATE TABLE IF NOT EXISTS {table_name} (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                candle_index INT,
-                open FLOAT,
-                high FLOAT,
-                low FLOAT,
-                close FLOAT,
-                volume FLOAT,
-                volume_percentile FLOAT,
-                body_percentage FLOAT,
-                is_key_candle BOOLEAN,
-                detection_params JSON,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            ) ENGINE=InnoDB;
-            """
-            self.cursor.execute(create_table_query)
-            self.connection.commit()
-            # Inserta resultados
-            insert_query = f"""
-            INSERT INTO {table_name} (
-                candle_index, open, high, low, close, volume, volume_percentile, body_percentage, is_key_candle, detection_params
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """
-            for res in results:
-                params_json = json.dumps(detection_params)
-                self.cursor.execute(insert_query, (
-                    res['index'], res['open'], res['high'], res['low'], res['close'],
-                    res['volume'], res['volume_percentile'], res['body_percentage'],
-                    res['is_key_candle'], params_json
-                ))
-            self.connection.commit()
-            print(f"Inserted {len(results)} key candles into {table_name}.")
+            # Ordena las tablas para borrar primero las hijas y luego la padre
+            tablas_borrado = []
+            if 'key_candles' in tables:
+                tablas_borrado.append('key_candles')
+            if 'detection_params' in tables:
+                tablas_borrado.append('detection_params')
+            if 'detection_sessions' in tables:
+                tablas_borrado.append('detection_sessions')
+            # Borrado en orden seguro
+            for table_name in tablas_borrado:
+                # Verifica si la tabla existe
+                self.cursor.execute(f"SHOW TABLES LIKE '{table_name}'")
+                exists = self.cursor.fetchone() is not None
+                if not exists:
+                    # Crea la tabla con la estructura estándar o de sesión
+                    if table_name in ['detection_sessions', 'detection_params']:
+                        create_table_query = f"""
+                        CREATE TABLE IF NOT EXISTS {table_name} (
+                            id INT AUTO_INCREMENT PRIMARY KEY,
+                            detection_params JSON,
+                            csv_file VARCHAR(255),
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        ) ENGINE=InnoDB;
+                        """
+                    else:
+                        create_table_query = f"""
+                        CREATE TABLE IF NOT EXISTS {table_name} (
+                            id INT AUTO_INCREMENT PRIMARY KEY,
+                            candle_index INT,
+                            open FLOAT,
+                            high FLOAT,
+                            low FLOAT,
+                            close FLOAT,
+                            volume FLOAT,
+                            volume_percentile FLOAT,
+                            body_percentage FLOAT,
+                            is_key_candle BOOLEAN,
+                            detection_params JSON,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        ) ENGINE=InnoDB;
+                        """
+                    self.cursor.execute(create_table_query)
+                    self.connection.commit()
+                # Limpia la tabla antes de insertar nuevos datos
+                self.cursor.execute(f"DELETE FROM {table_name}")
+                # Obtiene las columnas existentes en la tabla
+                self.cursor.execute(f"SHOW COLUMNS FROM {table_name}")
+                columns_info = self.cursor.fetchall()
+                table_columns = [col[0] for col in columns_info if col[0] != 'id' and col[0] != 'created_at']
+                insert_cols = []
+                for col in table_columns:
+                    if col == 'detection_params':
+                        insert_cols.append('detection_params')
+                    else:
+                        insert_cols.append(col)
+                insert_query = f"INSERT INTO {table_name} ({', '.join(insert_cols)}) VALUES ({', '.join(['%s']*len(insert_cols))})"
+                if table_name in ['detection_sessions', 'detection_params']:
+                    # Solo una fila por sesión
+                    row = []
+                    # Extrae los valores de los parámetros
+                    vpt = detection_params.get('volume_percentile_threshold', None)
+                    bpt = detection_params.get('body_percentage_threshold', None)
+                    lookback = detection_params.get('lookback_candles', None)
+                    num_candles = getattr(self, 'num_candles', None)
+                    for col in insert_cols:
+                        if col == 'detection_params':
+                            row.append(json.dumps(detection_params))
+                        elif col == 'csv_file':
+                            row.append(self.csv_file if hasattr(self, 'csv_file') else None)
+                        elif col == 'created_at':
+                            row.append(datetime.now())
+                        elif col == 'volume_threshold':
+                            row.append(vpt)
+                        elif col == 'body_threshold':
+                            row.append(bpt)
+                        elif col == 'lookback':
+                            row.append(lookback)
+                        elif col == 'num_candles':
+                            row.append(num_candles)
+                        else:
+                            row.append(None)
+                    self.cursor.execute(insert_query, tuple(row))
+                else:
+                    for res in results:
+                        row = []
+                        for col in insert_cols:
+                            if col == 'detection_params':
+                                row.append(json.dumps(detection_params))
+                            elif col == 'candle_index' and 'index' in res:
+                                row.append(res['index'])
+                            else:
+                                row.append(res.get(col, None))
+                        self.cursor.execute(insert_query, tuple(row))
+                self.connection.commit()
             return True
         except Exception as e:
-            print(f"Error saving results: {e}")
+            import traceback
             traceback.print_exc()
             return False
 
@@ -120,5 +188,10 @@ if __name__ == "__main__":
 
     saver = DetectionResultSaver()
     if saver.connect():
-        saver.save_results(results, detector.detection_params)
+        tablas_destino = ["detection_params", "detection_sessions", "key_candles"]
+        # Guarda el nombre del archivo CSV en el saver para usarlo en detection_sessions
+        saver.csv_file = os.path.basename(args.csv)
+        # Guarda el número de velas analizadas
+        saver.num_candles = len(detector.data) if detector.data is not None else None
+        saver.save_results(results, detector.detection_params, tablas_destino)
         saver.close()
