@@ -110,6 +110,21 @@ class TripleSignalSaver:
                 trend_end_datetime DATETIME,
                 signal_strength FLOAT,
                 combined_score FLOAT,
+                
+                /* Puntuaciones detalladas de componentes */
+                zone_score FLOAT,
+                trend_score FLOAT,
+                candle_score FLOAT,
+                direction_factor FLOAT,
+                slope_factor FLOAT,
+                
+                /* Factores avanzados de evaluación */
+                divergence_factor FLOAT,
+                reliability_bonus FLOAT,
+                profit_potential FLOAT,
+                
+                /* Información adicional */
+                scoring_details JSON,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE KEY unique_signal (symbol, timeframe, candle_index)
             )
@@ -158,6 +173,9 @@ class TripleSignalSaver:
                     # Podemos relacionar velas y mini-tendencias por rango de índices
             
             # Construyamos una consulta adaptada a la estructura real
+            # Modificación: Incluir velas cercanas a zonas y tendencias, no solo dentro
+            tolerance = 5  # Tolerancia de índices para ampliar la detección (ajustado de 3 a 5)
+            
             query = f"""
             SELECT 
                 kc.id as key_candle_id,
@@ -184,13 +202,24 @@ class TripleSignalSaver:
             JOIN detect_accumulation_zone_results daz ON 
                 daz.symbol = '{symbol}' AND
                 daz.timeframe = '{timeframe}' AND
-                kc.candle_index >= daz.start_idx AND
-                kc.candle_index <= daz.end_idx
+                /* Ampliar el rango de detección para ser más flexibles */
+                (
+                    (kc.candle_index >= daz.start_idx - {tolerance} AND kc.candle_index <= daz.end_idx + {tolerance})
+                    OR
+                    (kc.candle_index >= daz.start_idx AND kc.candle_index <= daz.end_idx)
+                )
             JOIN {mini_trend_table} mt ON 
-                kc.candle_index >= mt.start_idx AND
-                kc.candle_index <= mt.end_idx
+                /* Ampliar el rango de detección para tendencias también */
+                (
+                    (kc.candle_index >= mt.start_idx - {tolerance} AND kc.candle_index <= mt.end_idx + {tolerance})
+                    OR
+                    (kc.candle_index >= mt.start_idx AND kc.candle_index <= mt.end_idx)
+                )
             WHERE 
                 kc.is_key_candle = TRUE
+                /* Filtros menos restrictivos para la calidad */
+                AND daz.quality_score >= 0.5 
+                AND mt.r_squared >= 0.45
             ORDER BY kc.candle_index
             """
             
@@ -215,59 +244,174 @@ class TripleSignalSaver:
         Devuelve un valor entre 0 y 1, donde valores más altos indican señales más fuertes.
         """
         try:
-            # Pesos de cada componente (ajustables)
+            # Pesos de cada componente (ajustados basados en resultados)
             zone_weight = 0.35
             trend_weight = 0.35
             candle_weight = 0.30
             
-            # Normalizar calidad de zona (típicamente entre 0 y 1)
-            zone_quality = min(signal['zone_quality_score'], 1.0)
+            # Factores detallados para cada componente
+            # 1. PUNTUACIÓN DE ZONA DE ACUMULACIÓN
+            # Base: calidad de zona (normalmente entre 0.5 y 0.9) - más flexible
+            zone_quality_raw = min(signal['zone_quality_score'], 1.0)
+            # Ajuste más permisivo: (0.45 es aceptable, 0.85 es excelente)
+            zone_quality = (zone_quality_raw - 0.45) / 0.4 if zone_quality_raw > 0.45 else 0.1
+            zone_quality = min(zone_quality, 1.0)
             
-            # Normalizar r-cuadrado (ya está entre 0 y 1)
-            trend_quality = signal['trend_r_squared']
+            # 2. PUNTUACIÓN DE MINI-TENDENCIA
+            # Base: r-cuadrado (medida de ajuste de la tendencia) - más flexible
+            trend_quality_raw = signal['trend_r_squared']
+            # Ajuste más permisivo: Un r-cuadrado de 0.6+ es considerado bueno
+            if trend_quality_raw >= 0.6:
+                trend_quality = trend_quality_raw * 1.3  # Premio extra
+            elif trend_quality_raw >= 0.45:
+                trend_quality = trend_quality_raw * 1.0  # Sin penalización
+            else:
+                trend_quality = trend_quality_raw * 0.9  # Penalización menor
+            trend_quality = min(trend_quality, 1.0)
             
-            # Normalizar métricas de vela
-            volume_norm = min(signal['volume'] / 100, 1.0)  # Ajustar según escala de volumen
-            body_norm = signal['body_percentage'] / 100  # Convertir a decimal
+            # Factor de dirección (bonus para tendencias específicas basado en resultados)
+            trend_direction = signal.get('trend_direction', '').lower()
+            direction_factor = 1.0
+            if trend_direction == 'alcista':
+                direction_factor = 1.15  # 15% de bonus para tendencias alcistas
+            elif trend_direction == 'bajista':
+                direction_factor = 0.9   # 10% de penalización para tendencias bajistas
+            
+            # Factor de pendiente (normalizado)
+            slope_abs = abs(float(signal['trend_slope']))
+            slope_factor = min(slope_abs / 100, 1.2)  # Más pendiente = más fuerte (hasta +20%)
+            
+            # Puntuación de tendencia combinada (ajustada por dirección y pendiente)
+            trend_quality = trend_quality * direction_factor * slope_factor
+            trend_quality = min(trend_quality, 1.0)  # Limitar a 1.0
+            
+            # 3. PUNTUACIÓN DE VELA CLAVE
+            # Normalizar volumen (volumen mayor a 150 es considerado muy alto)
+            volume_raw = float(signal['volume'])
+            volume_norm = min(volume_raw / 150, 1.0)
+            
+            # Normalizar tamaño de cuerpo - ajustado según la señal exitosa (aprox. 28%)
+            body_pct = float(signal['body_percentage'])
+            if body_pct < 5:  # Cuerpos muy pequeños 
+                body_norm = 0.3  # Menos penalización
+            elif body_pct <= 15:  # Cuerpos pequeños
+                body_norm = 0.6  # Menos penalización
+            elif body_pct <= 40:  # Rango óptimo (incluye nuestra señal exitosa ~28%)
+                body_norm = 1.0
+            elif body_pct <= 60:  # Cuerpos grandes pero aceptables
+                body_norm = 0.8  # Menos penalización
+            else:  # Cuerpos muy grandes
+                body_norm = 0.6  # Menos penalización
+            
+            # Balance de volumen vs morfología - ajustado a la señal exitosa 
+            # (más peso al cuerpo como en nuestra señal exitosa)
             candle_quality = 0.6 * volume_norm + 0.4 * body_norm
             
-            # Calcular puntuación combinada ponderada
-            signal_strength = (
+            # Calcular puntuación básica ponderada
+            base_strength = (
                 zone_weight * zone_quality +
                 trend_weight * trend_quality +
                 candle_weight * candle_quality
             )
             
-            return round(signal_strength, 4)
+            # Obtener detalles para scoring detallado
+            details = {
+                "zone_score": round(zone_quality, 4),
+                "trend_score": round(trend_quality, 4),
+                "candle_score": round(candle_quality, 4),
+                "direction_factor": round(direction_factor, 4),
+                "slope_factor": round(slope_factor, 4),
+            }
+            
+            return round(base_strength, 4), details
         except Exception as e:
             logger.warning(f"Error calculando fuerza de señal: {e}")
-            return 0.5  # Valor por defecto
+            return 0.5, {"error": str(e)}  # Valor por defecto
     
-    def calculate_combined_score(self, signal):
+    def calculate_combined_score(self, signal, details=None):
         """
-        Calcula una puntuación combinada incluyendo factores adicionales como:
-        - La dirección de la tendencia
-        - La pendiente de la tendencia
+        Calcula una puntuación combinada que incluye factores adicionales y contextuales:
+        - Potencia global de la señal
+        - Fiabilidad basada en convergencia de factores
+        - Potencial de rentabilidad basado en patrones históricos
         
-        Esta puntuación puede usarse para clasificar las señales.
+        Esta puntuación se usa para clasificar y priorizar señales.
         """
         try:
-            base_strength = self.calculate_signal_strength(signal)
+            # Si ya tenemos details de calculate_signal_strength, los usamos
+            # sino, calculamos la fuerza base
+            if details is None:
+                base_strength, details = self.calculate_signal_strength(signal)
+            else:
+                base_strength = 0.5  # Valor provisional si no tenemos base_strength
             
-            # Ajuste por dirección de tendencia (por ejemplo, bonus para tendencias alcistas)
-            # Este ajuste puede personalizarse según la estrategia
-            direction_factor = 1.1 if signal['trend_direction'] == 'alcista' else 0.9
+            # 1. FACTOR DE DIVERGENCIA (cuánto difieren los tres factores entre sí)
+            # Si los tres componentes tienen valores similares, la señal es más confiable
+            component_scores = [
+                details.get("zone_score", 0.5),
+                details.get("trend_score", 0.5),
+                details.get("candle_score", 0.5)
+            ]
+            max_score = max(component_scores)
+            min_score = min(component_scores)
+            score_divergence = max_score - min_score
             
-            # Ajuste por pendiente (normalizada)
-            slope_abs = abs(signal['trend_slope'])
-            slope_factor = min(slope_abs / 100, 1.0) * 0.2 + 0.9  # Entre 0.9 y 1.1
+            # Menos divergencia = más confiable
+            divergence_factor = 1 - (score_divergence * 0.5)  # 0.5 a 1.0
             
-            combined_score = base_strength * direction_factor * slope_factor
+            # 2. FACTOR DE CONTEXTO DE MERCADO
+            # Basado en la dirección global y pendiente
+            trend_direction = signal.get('trend_direction', '').lower()
+            market_factor = 1.0
             
-            return round(min(combined_score, 1.0), 4)  # Limitar a máximo 1.0
+            # Factor adicional para r-cuadrado alto (tendencias más confiables)
+            r_squared = float(signal.get('trend_r_squared', 0.5))
+            reliability_bonus = 0.0
+            if r_squared > 0.8:  # Tendencias muy confiables
+                reliability_bonus = 0.2
+            elif r_squared > 0.7:
+                reliability_bonus = 0.1
+            
+            # 3. EVALUACIÓN DE POTENCIAL DE RENTABILIDAD
+            # Basado en características que históricamente producen mejores resultados
+            profit_potential = 0.6  # Base más optimista
+            
+            # Tendencias alcistas con volumen significativo tienen mayor potencial
+            # Flexibilizado según señal exitosa (vol ~98.67)
+            if trend_direction == 'alcista' and float(signal.get('volume', 0)) > 80:
+                profit_potential = 0.85
+            # Retrocesos/consolidaciones con volumen decente
+            elif trend_direction == 'alcista' and float(signal.get('volume', 0)) > 50:
+                profit_potential = 0.75
+            # Reversiones después de tendencias bajistas también tienen buen potencial
+            elif trend_direction == 'bajista' and signal.get('body_percentage', 0) > 20:
+                profit_potential = 0.7
+            
+            # Calcular puntuación combinada con todos los factores
+            combined_score = (
+                0.5 * base_strength +
+                0.2 * divergence_factor +
+                0.15 * (market_factor + reliability_bonus) +
+                0.15 * profit_potential
+            )
+            
+            # Crear objeto de detalles extendido
+            extended_details = {
+                **details,
+                "divergence_factor": round(divergence_factor, 4),
+                "reliability_bonus": round(reliability_bonus, 4),
+                "profit_potential": round(profit_potential, 4),
+                "base_strength": round(base_strength, 4),
+                "final_score": round(min(combined_score, 1.0), 4)
+            }
+            
+            return round(min(combined_score, 1.0), 4), extended_details  # Limitar a máximo 1.0
+            
         except Exception as e:
             logger.warning(f"Error calculando puntuación combinada: {e}")
-            return base_strength
+            import traceback
+            traceback.print_exc()
+            return 0.5, {"error": str(e)}
     
     def save_signals(self, symbol, timeframe):
         """Guarda las señales de triple coincidencia en la tabla."""
@@ -309,16 +453,25 @@ class TripleSignalSaver:
                 volume, body_percentage, zone_id, zone_quality_score, 
                 zone_start_datetime, zone_end_datetime, mini_trend_id, 
                 trend_direction, trend_slope, trend_r_squared, 
-                trend_start_datetime, trend_end_datetime, signal_strength, combined_score
+                trend_start_datetime, trend_end_datetime, 
+                signal_strength, combined_score,
+                zone_score, trend_score, candle_score, direction_factor, slope_factor,
+                divergence_factor, reliability_bonus, profit_potential,
+                scoring_details
             ) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
             )
             """
             
             for signal in signals:
-                # Calcular puntuaciones
-                signal_strength = self.calculate_signal_strength(signal)
-                combined_score = self.calculate_combined_score(signal)
+                # Calcular puntuaciones detalladas
+                signal_strength, strength_details = self.calculate_signal_strength(signal)
+                combined_score, extended_details = self.calculate_combined_score(signal, strength_details)
+                
+                # Convertir detalles extendidos a JSON para almacenamiento
+                import json
+                scoring_details_json = json.dumps(extended_details)
                 
                 # Preparar datos para inserción
                 # Calcular datetime para la vela a partir de la zona y su índice
@@ -363,7 +516,7 @@ class TripleSignalSaver:
                 if isinstance(candle_datetime, datetime):
                     candle_datetime = candle_datetime.strftime('%Y-%m-%d %H:%M:%S')
                 
-                # Preparar parámetros para la consulta
+                # Preparar parámetros para la consulta con puntuaciones detalladas
                 params = (
                     signal['symbol'],
                     signal['timeframe'],
@@ -386,7 +539,19 @@ class TripleSignalSaver:
                     signal['trend_start_datetime'],
                     signal['trend_end_datetime'],
                     signal_strength,
-                    combined_score
+                    combined_score,
+                    # Puntuaciones detalladas de componentes
+                    extended_details.get('zone_score', 0.0),
+                    extended_details.get('trend_score', 0.0),
+                    extended_details.get('candle_score', 0.0),
+                    extended_details.get('direction_factor', 0.0),
+                    extended_details.get('slope_factor', 0.0),
+                    # Factores avanzados
+                    extended_details.get('divergence_factor', 0.0),
+                    extended_details.get('reliability_bonus', 0.0),
+                    extended_details.get('profit_potential', 0.0),
+                    # JSON completo con todos los detalles
+                    scoring_details_json
                 )
                 
                 try:
