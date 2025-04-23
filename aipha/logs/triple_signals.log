@@ -1,0 +1,84 @@
+2025-04-23 18:07:20,473 - __main__ - INFO - Iniciando guardado de señales de triple coincidencia para BTCUSDT-5m
+2025-04-23 18:07:26,511 - __main__ - INFO - Conectado a base de datos MySQL: binance_lob
+2025-04-23 18:07:43,269 - __main__ - INFO - Tabla triple_signals creada o ya existente
+2025-04-23 18:07:43,815 - __main__ - ERROR - Error buscando señales de triple coincidencia: 1146 (42S02): Table 'binance_lob.mini_trends' doesn't exist
+2025-04-23 18:07:43,815 - __main__ - INFO - No se encontraron señales de triple coincidencia para BTCUSDT-5m
+2025-04-23 18:07:43,898 - __main__ - INFO - Conexión a la base de datos cerrada
+2025-04-23 18:07:43,898 - __main__ - INFO - Proceso completado exitosamente
+2025-04-23 18:08:55,039 - __main__ - INFO - Iniciando guardado de señales de triple coincidencia para BTCUSDT-5m
+2025-04-23 18:09:07,869 - __main__ - INFO - Conectado a base de datos MySQL: binance_lob
+2025-04-23 18:09:08,915 - __main__ - INFO - Tabla triple_signals creada o ya existente
+2025-04-23 18:09:09,115 - __main__ - INFO - Usando tabla de mini-tendencias: mini_trend_results
+2025-04-23 18:09:09,262 - __main__ - ERROR - Error buscando señales de triple coincidencia: 1054 (42S22): Unknown column 'kc.symbol' in 'field list'
+2025-04-23 18:09:09,262 - __main__ - INFO - No se encontraron señales de triple coincidencia para BTCUSDT-5m
+2025-04-23 18:09:09,271 - __main__ - INFO - Conexión a la base de datos cerrada
+2025-04-23 18:09:09,271 - __main__ - INFO - Proceso completado exitosamente
+2025-04-23 18:11:17,769 - __main__ - INFO - Iniciando guardado de señales de triple coincidencia para BTCUSDT-5m
+2025-04-23 18:11:19,745 - __main__ - INFO - Conectado a base de datos MySQL: binance_lob
+2025-04-23 18:11:19,942 - __main__ - INFO - Tabla triple_signals creada o ya existente
+2025-04-23 18:11:19,942 - __main__ - INFO - Usando tabla de mini-tendencias: mini_trend_results
+2025-04-23 18:11:20,078 - __main__ - WARNING - La tabla key_candles no tiene las columnas requeridas: mini_trend_id=False, in_accumulation_zone=False
+2025-04-23 18:11:20,078 - __main__ - INFO - Intentando determinar relación entre velas clave y zonas de acumulación
+2025-04-23 18:11:20,079 - __main__ - INFO - Intentando determinar relación entre velas clave y mini-tendencias por índices
+2025-04-23 18:11:20,079 - __main__ - INFO - Ejecutando consulta para encontrar señales de triple coincidencia
+2025-04-23 18:11:20,211 - __main__ - INFO - Encontradas 2 señales de triple coincidencia para BTCUSDT-5m
+2025-04-23 18:11:21,039 - __main__ - ERROR - Error guardando señales de triple coincidencia: 1062 (23000): Duplicate entry 'BTCUSDT-5m-48' for key 'triple_signals.unique_signal'
+2025-04-23 18:11:33,652 - __main__ - INFO - Conexión a la base de datos cerrada
+2025-04-23 18:11:33,652 - __main__ - ERROR - Error en el proceso de guardado de señales
+2025-04-23 18:12:57,545 - __main__ - INFO - Iniciando guardado de señales de triple coincidencia para BTCUSDT-5m
+2025-04-23 18:13:03,975 - __main__ - INFO - Conectado a base de datos MySQL: binance_lob
+2025-04-23 18:13:04,070 - __main__ - INFO - Tabla triple_signals creada o ya existente
+2025-04-23 18:13:04,070 - __main__ - INFO - Usando tabla de mini-tendencias: mini_trend_results
+2025-04-23 18:13:04,225 - __main__ - WARNING - La tabla key_candles no tiene las columnas requeridas: mini_trend_id=False, in_accumulation_zone=False
+2025-04-23 18:13:04,225 - __main__ - INFO - Intentando determinar relación entre velas clave y zonas de acumulación
+2025-04-23 18:13:04,225 - __main__ - INFO - Intentando determinar relación entre velas clave y mini-tendencias por índices
+2025-04-23 18:13:04,225 - __main__ - INFO - Ejecutando consulta para encontrar señales de triple coincidencia
+2025-04-23 18:13:04,252 - __main__ - INFO - Encontradas 2 señales de triple coincidencia para BTCUSDT-5m
+2025-04-23 18:13:04,326 - __main__ - INFO - Eliminados registros específicos para candle_index: [48, 48]
+2025-04-23 18:13:04,478 - __main__ - WARNING - Se omitió una señal duplicada en candle_index=48
+2025-04-23 18:13:04,481 - __main__ - INFO - Guardadas 1 señales de triple coincidencia en la tabla
+2025-04-23 18:13:04,495 - __main__ - INFO - Conexión a la base de datos cerrada
+2025-04-23 18:13:04,496 - __main__ - INFO - Proceso completado exitosamente
+2025-04-23 18:17:31,334 - __main__ - INFO - Iniciando guardado de señales de triple coincidencia para BTCUSDT-5m
+2025-04-23 18:17:32,606 - __main__ - INFO - Conectado a base de datos MySQL: binance_lob
+2025-04-23 18:17:32,733 - __main__ - INFO - Tabla triple_signals creada o ya existente
+2025-04-23 18:17:32,734 - __main__ - INFO - Usando tabla de mini-tendencias: mini_trend_results
+2025-04-23 18:17:32,779 - __main__ - WARNING - La tabla key_candles no tiene las columnas requeridas: mini_trend_id=False, in_accumulation_zone=False
+2025-04-23 18:17:32,779 - __main__ - INFO - Intentando determinar relación entre velas clave y zonas de acumulación
+2025-04-23 18:17:32,779 - __main__ - INFO - Intentando determinar relación entre velas clave y mini-tendencias por índices
+2025-04-23 18:17:32,779 - __main__ - INFO - Ejecutando consulta para encontrar señales de triple coincidencia
+2025-04-23 18:17:32,859 - __main__ - INFO - Encontradas 2 señales de triple coincidencia para BTCUSDT-5m
+2025-04-23 18:17:32,987 - __main__ - INFO - Eliminados registros específicos para candle_index: [48, 48]
+2025-04-23 18:17:33,052 - __main__ - ERROR - Error guardando señales de triple coincidencia: 1054 (42S22): Unknown column 'zone_start_datetime' in 'field list'
+2025-04-23 18:17:33,186 - __main__ - INFO - Conexión a la base de datos cerrada
+2025-04-23 18:17:33,186 - __main__ - ERROR - Error en el proceso de guardado de señales
+2025-04-23 18:18:16,802 - __main__ - INFO - Iniciando guardado de señales de triple coincidencia para BTCUSDT-5m
+2025-04-23 18:18:17,073 - __main__ - INFO - Conectado a base de datos MySQL: binance_lob
+2025-04-23 18:18:17,188 - __main__ - INFO - Tabla triple_signals existente, eliminándola para recrear
+2025-04-23 18:18:20,913 - __main__ - INFO - Tabla triple_signals creada correctamente con todas las columnas
+2025-04-23 18:18:20,913 - __main__ - INFO - Usando tabla de mini-tendencias: mini_trend_results
+2025-04-23 18:18:20,947 - __main__ - WARNING - La tabla key_candles no tiene las columnas requeridas: mini_trend_id=False, in_accumulation_zone=False
+2025-04-23 18:18:20,947 - __main__ - INFO - Intentando determinar relación entre velas clave y zonas de acumulación
+2025-04-23 18:18:20,947 - __main__ - INFO - Intentando determinar relación entre velas clave y mini-tendencias por índices
+2025-04-23 18:18:20,947 - __main__ - INFO - Ejecutando consulta para encontrar señales de triple coincidencia
+2025-04-23 18:18:21,014 - __main__ - INFO - Encontradas 2 señales de triple coincidencia para BTCUSDT-5m
+2025-04-23 18:18:21,176 - __main__ - INFO - Eliminados registros específicos para candle_index: [48, 48]
+2025-04-23 18:18:21,216 - __main__ - WARNING - Se omitió una señal duplicada en candle_index=48
+2025-04-23 18:18:21,248 - __main__ - INFO - Guardadas 1 señales de triple coincidencia en la tabla
+2025-04-23 18:18:21,249 - __main__ - INFO - Conexión a la base de datos cerrada
+2025-04-23 18:18:21,249 - __main__ - INFO - Proceso completado exitosamente
+2025-04-23 18:24:44,645 - __main__ - INFO - Iniciando guardado de señales de triple coincidencia para BTCUSDT-5m
+2025-04-23 18:24:46,473 - __main__ - INFO - Conectado a base de datos MySQL: binance_lob
+2025-04-23 18:24:46,556 - __main__ - INFO - Tabla triple_signals existente, eliminándola para recrear
+2025-04-23 18:24:48,558 - __main__ - INFO - Tabla triple_signals creada correctamente con todas las columnas
+2025-04-23 18:24:48,558 - __main__ - INFO - Usando tabla de mini-tendencias: mini_trend_results
+2025-04-23 18:24:48,584 - __main__ - WARNING - La tabla key_candles no tiene las columnas requeridas: mini_trend_id=False, in_accumulation_zone=False
+2025-04-23 18:24:48,585 - __main__ - INFO - Intentando determinar relación entre velas clave y zonas de acumulación
+2025-04-23 18:24:48,585 - __main__ - INFO - Intentando determinar relación entre velas clave y mini-tendencias por índices
+2025-04-23 18:24:48,585 - __main__ - INFO - Ejecutando consulta para encontrar señales de triple coincidencia
+2025-04-23 18:24:48,606 - __main__ - INFO - Encontradas 2 señales de triple coincidencia para BTCUSDT-5m
+2025-04-23 18:24:48,629 - __main__ - INFO - Eliminados registros específicos para candle_index: [48, 48]
+2025-04-23 18:24:48,632 - __main__ - WARNING - Se omitió una señal duplicada en candle_index=48
+2025-04-23 18:24:48,635 - __main__ - INFO - Guardadas 1 señales de triple coincidencia en la tabla
+2025-04-23 18:24:48,654 - __main__ - INFO - Conexión a la base de datos cerrada
+2025-04-23 18:24:48,654 - __main__ - INFO - Proceso completado exitosamente

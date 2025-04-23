@@ -1,0 +1,1 @@
+2025-04-23 18:24:20,030 - ERROR - Error in main execution: AccumulationZoneDetector.set_params() got an unexpected keyword argument 'recency_bonus'

@@ -36,7 +36,14 @@ class Detector:
         if not required_cols.issubset(self.data.columns):
             raise ValueError(f"CSV missing required columns: {required_cols - set(self.data.columns)}")
 
-    def set_detection_params(self, volume_percentile_threshold=80, body_percentage_threshold=30, lookback_candles=50):
+    def set_detection_params(self, volume_percentile_threshold=70, body_percentage_threshold=40, lookback_candles=30):
+        """
+        Establece los parámetros para la detección de velas clave.
+        
+        :param volume_percentile_threshold: Percentil para considerar volumen alto (70 = top 30% del volumen)
+        :param body_percentage_threshold: Porcentaje máximo de tamaño del cuerpo respecto al rango
+        :param lookback_candles: Número de velas anteriores para calcular el percentil de volumen
+        """
         self.detection_params = {
             'volume_percentile_threshold': volume_percentile_threshold,
             'body_percentage_threshold': body_percentage_threshold,
@@ -85,6 +92,13 @@ class Detector:
             is_small_body = body_percentage <= bpt
             is_key_candle = is_high_volume and is_small_body
             if is_key_candle:
+                # Obtener timestamp si está disponible
+                timestamp = None
+                if 'timestamp' in self.data.columns:
+                    timestamp = self.data.iloc[idx]['timestamp']
+                elif 'open_time' in self.data.columns:
+                    timestamp = self.data.iloc[idx]['open_time']
+                
                 key_candles.append({
                     'index': idx,
                     'open': float(current['open']),
@@ -94,7 +108,8 @@ class Detector:
                     'volume': current_volume,
                     'volume_percentile': volume_percentile,
                     'body_percentage': body_percentage,
-                    'is_key_candle': is_key_candle
+                    'is_key_candle': is_key_candle,
+                    'timestamp': timestamp
                 })
         return key_candles
 

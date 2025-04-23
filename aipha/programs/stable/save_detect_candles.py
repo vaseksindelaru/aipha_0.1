@@ -70,7 +70,17 @@ class DetectionResultSaver:
         - Las otras tablas reciben los resultados completos de velas.
         Si la tabla existe, detecta sus columnas y solo inserta los campos que existan.
         Si no existe, la crea con la estructura estándar.
+        
+        Extrae el símbolo y timeframe del nombre del archivo CSV para guardarlos en las tablas.
         """
+        # Extraer símbolo y timeframe del nombre del archivo CSV
+        self.symbol = None
+        self.timeframe = None
+        if hasattr(self, 'csv_file') and self.csv_file:
+            parts = os.path.basename(self.csv_file).split('-')
+            if len(parts) >= 2:
+                self.symbol = parts[0]
+                self.timeframe = parts[1]
         from datetime import datetime
         if not self.connection or not self.connection.is_connected():
             print("Not connected to database.")
@@ -113,6 +123,10 @@ class DetectionResultSaver:
                             volume_percentile FLOAT,
                             body_percentage FLOAT,
                             is_key_candle BOOLEAN,
+                            symbol VARCHAR(20),
+                            timeframe VARCHAR(10),
+                            in_accumulation_zone BOOLEAN DEFAULT FALSE,
+                            datetime DATETIME,
                             detection_params JSON,
                             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                         ) ENGINE=InnoDB;
@@ -166,6 +180,12 @@ class DetectionResultSaver:
                                 row.append(json.dumps(detection_params))
                             elif col == 'candle_index' and 'index' in res:
                                 row.append(res['index'])
+                            elif col == 'symbol':
+                                row.append(self.symbol)
+                            elif col == 'timeframe':
+                                row.append(self.timeframe)
+                            elif col == 'datetime' and 'timestamp' in res:
+                                row.append(res['timestamp'])
                             else:
                                 row.append(res.get(col, None))
                         self.cursor.execute(insert_query, tuple(row))
@@ -180,11 +200,21 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Save Shakeout detection results to DB (AIPHA version)")
     parser.add_argument('--csv', type=str, required=True, help='Path to CSV file')
+    parser.add_argument('--volume-percentile', type=int, default=70, help='Percentil para considerar volumen alto (70 = top 30%)')
+    parser.add_argument('--body-threshold', type=int, default=40, help='Porcentaje máximo del cuerpo de la vela respecto al rango')
+    parser.add_argument('--lookback', type=int, default=30, help='Número de velas para calcular percentiles')
+    parser.add_argument('--verbose', action='store_true', help='Mostrar información detallada')
     args = parser.parse_args()
 
+    if args.verbose:
+        print(f"Parámetros de detección: VPT={args.volume_percentile}, BPT={args.body_threshold}, lookback={args.lookback}")
+    
     detector = Detector(args.csv)
-    detector.set_detection_params(80, 30, 50)
+    detector.set_detection_params(args.volume_percentile, args.body_threshold, args.lookback)
     results = detector.process_csv()
+
+    if args.verbose:
+        print(f"Detectadas {len(results)} velas clave en {os.path.basename(args.csv)}")
 
     saver = DetectionResultSaver()
     if saver.connect():
@@ -193,5 +223,16 @@ if __name__ == "__main__":
         saver.csv_file = os.path.basename(args.csv)
         # Guarda el número de velas analizadas
         saver.num_candles = len(detector.data) if detector.data is not None else None
-        saver.save_results(results, detector.detection_params, tablas_destino)
+        success = saver.save_results(results, detector.detection_params, tablas_destino)
         saver.close()
+        
+        if success and args.verbose:
+            print(f"Velas clave guardadas exitosamente en la base de datos")
+            # Extraer símbolo y timeframe del nombre del archivo
+            parts = os.path.basename(args.csv).split('-')
+            if len(parts) >= 2:
+                symbol = parts[0]
+                timeframe = parts[1]
+                print(f"Para consultar resultados: SELECT * FROM key_candles WHERE symbol = '{symbol}' AND timeframe = '{timeframe}';")
+        elif not success:
+            print("Error al guardar las velas clave en la base de datos")
