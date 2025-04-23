@@ -6,3 +6,4 @@
 2025-04-23 19:21:06,678 - ERROR - Error in main execution: AccumulationZoneDetector.set_params() got an unexpected keyword argument 'recency_bonus'
 2025-04-23 19:22:26,938 - ERROR - Error in main execution: AccumulationZoneDetector.set_params() got an unexpected keyword argument 'recency_bonus'
 2025-04-23 19:22:32,239 - ERROR - Error in main execution: AccumulationZoneDetector.set_params() got an unexpected keyword argument 'recency_bonus'
+2025-04-23 19:33:15,063 - ERROR - Error in main execution: AccumulationZoneDetector.set_params() got an unexpected keyword argument 'recency_bonus'

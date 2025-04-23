@@ -174,7 +174,7 @@ class TripleSignalSaver:
             
             # Construyamos una consulta adaptada a la estructura real
             # Modificación: Incluir velas cercanas a zonas y tendencias, no solo dentro
-            tolerance = 5  # Tolerancia de índices para ampliar la detección (ajustado de 3 a 5)
+            tolerance = 8  # Tolerancia de índices para ampliar la detección (ajustado de 5 a 8)
             
             query = f"""
             SELECT 
