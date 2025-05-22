@@ -16,6 +16,7 @@ import os
 import sys
 import argparse
 import logging
+import csv  # Added import
 import mysql.connector
 from mysql.connector import errors
 from datetime import datetime, timedelta
@@ -412,9 +413,34 @@ class TripleSignalSaver:
             import traceback
             traceback.print_exc()
             return 0.5, {"error": str(e)}
-    
-    def save_signals(self, symbol, timeframe):
-        """Guarda las señales de triple coincidencia en la tabla."""
+
+    def save_signals_to_csv(self, signals, filename):
+        """Guarda una lista de señales (diccionarios) en un archivo CSV."""
+        if not signals:
+            logger.info("No hay señales para guardar en CSV.")
+            return True
+
+        try:
+            # Usar las claves del primer diccionario de señal como encabezados
+            # Asegurarse de que 'scoring_details' (que es JSON) y otros campos estén incluidos.
+            headers = list(signals[0].keys())
+            
+            with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
+                writer = csv.DictWriter(csvfile, fieldnames=headers)
+                writer.writeheader()
+                for signal_data in signals:
+                    writer.writerow(signal_data)
+            logger.info(f"Señales guardadas exitosamente en el archivo CSV: {filename}")
+            return True
+        except IOError as e:
+            logger.error(f"Error de E/S al escribir el archivo CSV {filename}: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Error inesperado al escribir el archivo CSV {filename}: {e}")
+            return False
+
+    def save_signals(self, symbol, timeframe, output_csv_filename=None):
+        """Guarda las señales de triple coincidencia en la tabla y opcionalmente en un CSV."""
         if not self.connect():
             return False
         
@@ -424,47 +450,14 @@ class TripleSignalSaver:
                 return False
             
             # Encontrar señales
-            signals = self.find_triple_signals(symbol, timeframe)
-            if not signals:
+            raw_signals = self.find_triple_signals(symbol, timeframe)
+            if not raw_signals:
                 logger.info(f"No se encontraron señales de triple coincidencia para {symbol}-{timeframe}")
+                self.close() # Asegurar que la conexión se cierra
                 return True
-            
-            # Asegurarnos que no hay registros previos que puedan causar duplicados
-            # Primero, eliminamos cualquier registro con el mismo symbol/timeframe
-            delete_query = "DELETE FROM triple_signals WHERE symbol = %s AND timeframe = %s"
-            self.cursor.execute(delete_query, (symbol, timeframe))
-            self.conn.commit()
-            
-            # Para mayor seguridad, también podemos eliminar registros específicos por índice
-            if signals:
-                candle_indices = [signal['candle_index'] for signal in signals]
-                placeholder = ', '.join(['%s'] * len(candle_indices))
-                delete_specific_query = f"DELETE FROM triple_signals WHERE symbol = %s AND timeframe = %s AND candle_index IN ({placeholder})"
-                params = [symbol, timeframe] + candle_indices
-                self.cursor.execute(delete_specific_query, params)
-                self.conn.commit()
-                logger.info(f"Eliminados registros específicos para candle_index: {candle_indices}")
-            
-            # Insertar nuevas señales
-            insert_count = 0
-            insert_query = """
-            INSERT INTO triple_signals (
-                symbol, timeframe, candle_index, datetime, open, high, low, close, 
-                volume, body_percentage, zone_id, zone_quality_score, 
-                zone_start_datetime, zone_end_datetime, mini_trend_id, 
-                trend_direction, trend_slope, trend_r_squared, 
-                trend_start_datetime, trend_end_datetime, 
-                signal_strength, combined_score,
-                zone_score, trend_score, candle_score, direction_factor, slope_factor,
-                divergence_factor, reliability_bonus, profit_potential,
-                scoring_details
-            ) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
-            )
-            """
-            
-            for signal in signals:
+
+            processed_signals = []
+            for signal in raw_signals:
                 # Calcular puntuaciones detalladas
                 signal_strength, strength_details = self.calculate_signal_strength(signal)
                 combined_score, extended_details = self.calculate_combined_score(signal, strength_details)
@@ -472,26 +465,21 @@ class TripleSignalSaver:
                 # Convertir detalles extendidos a JSON para almacenamiento
                 import json
                 scoring_details_json = json.dumps(extended_details)
-                
-                # Preparar datos para inserción
-                # Calcular datetime para la vela a partir de la zona y su índice
-                # Primero usamos datos de zona, que son más específicos del símbolo/timeframe
+
+                # Calcular datetime para la vela (lógica existente)
                 zone_start = signal.get('zone_start_datetime')
                 zone_end = signal.get('zone_end_datetime')
                 zone_start_idx = None
                 zone_end_idx = None
                 
-                # Buscar los índices de inicio/fin de la zona
                 self.cursor.execute(f"SELECT start_idx, end_idx FROM detect_accumulation_zone_results WHERE id = {signal['zone_id']}")
                 zone_info = self.cursor.fetchone()
                 if zone_info:
                     zone_start_idx = zone_info['start_idx']
                     zone_end_idx = zone_info['end_idx']
                 
-                # Calcular datetime aproximado para la vela
                 candle_datetime = None
                 if zone_start and zone_end and zone_start_idx is not None and zone_end_idx is not None:
-                    # Calcular posición relativa de esta vela en la zona
                     if isinstance(zone_start, str):
                         zone_start = datetime.strptime(zone_start, '%Y-%m-%d %H:%M:%S')
                     if isinstance(zone_end, str):
@@ -501,7 +489,6 @@ class TripleSignalSaver:
                     zone_bars = zone_end_idx - zone_start_idx + 1
                     bar_duration = zone_duration / zone_bars if zone_bars > 0 else 0
                     
-                    # Posición relativa de la vela en la zona
                     bar_offset = signal['candle_index'] - zone_start_idx
                     if bar_offset >= 0 and bar_duration > 0:
                         offset_seconds = bar_offset * bar_duration
@@ -509,65 +496,118 @@ class TripleSignalSaver:
                     else:
                         candle_datetime = zone_start
                 else:
-                    # Si no podemos calcular, usamos inicio de zona o tiempo actual como fallback
                     candle_datetime = zone_start or datetime.now()
                 
-                # Formateamos para inserción
                 if isinstance(candle_datetime, datetime):
-                    candle_datetime = candle_datetime.strftime('%Y-%m-%d %H:%M:%S')
-                
-                # Preparar parámetros para la consulta con puntuaciones detalladas
-                params = (
-                    signal['symbol'],
-                    signal['timeframe'],
-                    signal['candle_index'],
-                    candle_datetime,
-                    signal['open'],
-                    signal['high'],
-                    signal['low'],
-                    signal['close'],
-                    signal['volume'],
-                    signal['body_percentage'],
-                    signal['zone_id'],
-                    signal['zone_quality_score'],
-                    signal['zone_start_datetime'],
-                    signal['zone_end_datetime'],
-                    signal['trend_id'],
-                    signal['trend_direction'],
-                    signal['trend_slope'],
-                    signal['trend_r_squared'],
-                    signal['trend_start_datetime'],
-                    signal['trend_end_datetime'],
-                    signal_strength,
-                    combined_score,
-                    # Puntuaciones detalladas de componentes
-                    extended_details.get('zone_score', 0.0),
-                    extended_details.get('trend_score', 0.0),
-                    extended_details.get('candle_score', 0.0),
-                    extended_details.get('direction_factor', 0.0),
-                    extended_details.get('slope_factor', 0.0),
-                    # Factores avanzados
-                    extended_details.get('divergence_factor', 0.0),
-                    extended_details.get('reliability_bonus', 0.0),
-                    extended_details.get('profit_potential', 0.0),
-                    # JSON completo con todos los detalles
-                    scoring_details_json
-                )
-                
-                try:
-                    self.cursor.execute(insert_query, params)
-                    insert_count += 1
-                except mysql.connector.errors.IntegrityError as e:
-                    # Manejo específico para error de duplicado
-                    if "Duplicate entry" in str(e):
-                        logger.warning(f"Se omitió una señal duplicada en candle_index={signal['candle_index']}")
-                    else:
-                        # Re-lanzar otros errores de integridad
-                        raise
-            
+                    candle_datetime_str = candle_datetime.strftime('%Y-%m-%d %H:%M:%S')
+                else:
+                    candle_datetime_str = str(candle_datetime) # Fallback si no es datetime
+
+                # Crear un diccionario con la señal procesada
+                processed_signal_data = {
+                    'symbol': signal['symbol'],
+                    'timeframe': signal['timeframe'],
+                    'candle_index': signal['candle_index'],
+                    'datetime': candle_datetime_str,
+                    'open': signal['open'],
+                    'high': signal['high'],
+                    'low': signal['low'],
+                    'close': signal['close'],
+                    'volume': signal['volume'],
+                    'body_percentage': signal['body_percentage'],
+                    'zone_id': signal['zone_id'],
+                    'zone_quality_score': signal['zone_quality_score'],
+                    'zone_start_datetime': signal['zone_start_datetime'],
+                    'zone_end_datetime': signal['zone_end_datetime'],
+                    'mini_trend_id': signal['trend_id'], # Corregido de 'trend_id' a 'mini_trend_id' para consistencia con la tabla
+                    'trend_direction': signal['trend_direction'],
+                    'trend_slope': signal['trend_slope'],
+                    'trend_r_squared': signal['trend_r_squared'],
+                    'trend_start_datetime': signal['trend_start_datetime'],
+                    'trend_end_datetime': signal['trend_end_datetime'],
+                    'signal_strength': signal_strength,
+                    'combined_score': combined_score,
+                    'zone_score': extended_details.get('zone_score', 0.0),
+                    'trend_score': extended_details.get('trend_score', 0.0),
+                    'candle_score': extended_details.get('candle_score', 0.0),
+                    'direction_factor': extended_details.get('direction_factor', 0.0),
+                    'slope_factor': extended_details.get('slope_factor', 0.0),
+                    'divergence_factor': extended_details.get('divergence_factor', 0.0),
+                    'reliability_bonus': extended_details.get('reliability_bonus', 0.0),
+                    'profit_potential': extended_details.get('profit_potential', 0.0),
+                    'scoring_details': scoring_details_json # JSON string
+                }
+                processed_signals.append(processed_signal_data)
+
+            # Guardado en Base de Datos (lógica existente con modificaciones para usar processed_signals)
+            # Asegurarnos que no hay registros previos que puedan causar duplicados
+            delete_query = "DELETE FROM triple_signals WHERE symbol = %s AND timeframe = %s"
+            self.cursor.execute(delete_query, (symbol, timeframe))
             self.conn.commit()
-            logger.info(f"Guardadas {insert_count} señales de triple coincidencia en la tabla")
-            return True
+            
+            if processed_signals: # Solo si hay señales procesadas
+                candle_indices = [s['candle_index'] for s in processed_signals]
+                placeholder = ', '.join(['%s'] * len(candle_indices))
+                # Comprobar si candle_indices no está vacío para evitar error SQL
+                if candle_indices:
+                    delete_specific_query = f"DELETE FROM triple_signals WHERE symbol = %s AND timeframe = %s AND candle_index IN ({placeholder})"
+                    params_delete = [symbol, timeframe] + candle_indices
+                    self.cursor.execute(delete_specific_query, params_delete)
+                    self.conn.commit()
+                    logger.info(f"Eliminados registros específicos para candle_index: {candle_indices}")
+            
+            insert_count = 0
+            insert_query = """
+            INSERT INTO triple_signals (
+                symbol, timeframe, candle_index, datetime, open, high, low, close,
+                volume, body_percentage, zone_id, zone_quality_score, 
+                zone_start_datetime, zone_end_datetime, mini_trend_id, 
+                trend_direction, trend_slope, trend_r_squared, 
+                trend_start_datetime, trend_end_datetime, 
+                signal_strength, combined_score,
+                zone_score, trend_score, candle_score, direction_factor, slope_factor,
+                divergence_factor, reliability_bonus, profit_potential,
+                scoring_details
+            ) VALUES (
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+            )
+            """
+            
+            for psignal in processed_signals:
+                # Los datos ya están calculados y en el formato correcto en psignal
+                params_insert = (
+                    psignal['symbol'], psignal['timeframe'], psignal['candle_index'], psignal['datetime'],
+                    psignal['open'], psignal['high'], psignal['low'], psignal['close'],
+                    psignal['volume'], psignal['body_percentage'], psignal['zone_id'], psignal['zone_quality_score'],
+                    psignal['zone_start_datetime'], psignal['zone_end_datetime'], psignal['mini_trend_id'],
+                    psignal['trend_direction'], psignal['trend_slope'], psignal['trend_r_squared'],
+                    psignal['trend_start_datetime'], psignal['trend_end_datetime'],
+                    psignal['signal_strength'], psignal['combined_score'],
+                    psignal['zone_score'], psignal['trend_score'], psignal['candle_score'],
+                    psignal['direction_factor'], psignal['slope_factor'], psignal['divergence_factor'],
+                    psignal['reliability_bonus'], psignal['profit_potential'], psignal['scoring_details']
+                )
+                try:
+                    self.cursor.execute(insert_query, params_insert)
+                    insert_count += 1
+                except mysql.connector.errors.IntegrityError as e_int:
+                    if "Duplicate entry" in str(e_int):
+                        logger.warning(f"Se omitió una señal duplicada en DB en candle_index={psignal['candle_index']}")
+                    else:
+                        raise  # Re-lanzar otros errores de integridad
+            
+            if insert_count > 0:
+                self.conn.commit()
+            logger.info(f"Guardadas {insert_count} señales de triple coincidencia en la tabla.")
+
+            # Guardado en CSV
+            if output_csv_filename and processed_signals:
+                if not self.save_signals_to_csv(processed_signals, output_csv_filename):
+                    # Si falla el CSV, se registra el error pero la operación general puede considerarse exitosa
+                    # si la DB funcionó. Opcionalmente, podríamos cambiar el retorno a False aquí.
+                    logger.warning(f"No se pudo guardar las señales en CSV: {output_csv_filename}")
+            
+            return True # Éxito general si llegamos aquí
             
         except Exception as e:
             logger.error(f"Error guardando señales de triple coincidencia: {e}")
@@ -581,16 +621,19 @@ class TripleSignalSaver:
 
 def main():
     """Función principal."""
-    parser = argparse.ArgumentParser(description='Guardar señales de triple coincidencia en una tabla')
+    parser = argparse.ArgumentParser(description='Guardar señales de triple coincidencia en una tabla y/o CSV')
     parser.add_argument('--symbol', type=str, default='BTCUSDT', help='Símbolo (por defecto: BTCUSDT)')
     parser.add_argument('--timeframe', type=str, default='5m', help='Timeframe (por defecto: 5m)')
+    parser.add_argument('--output_csv', type=str, help='Nombre del archivo CSV de salida (opcional)')
     args = parser.parse_args()
     
     logger.info(f"Iniciando guardado de señales de triple coincidencia para {args.symbol}-{args.timeframe}")
-    
+    if args.output_csv:
+        logger.info(f"Las señales también se guardarán en: {args.output_csv}")
+        
     saver = TripleSignalSaver()
-    if saver.save_signals(args.symbol, args.timeframe):
-        logger.info("Proceso completado exitosamente")
+    if saver.save_signals(args.symbol, args.timeframe, output_csv_filename=args.output_csv):
+        logger.info("Proceso completado exitosamente.")
         return 0
     else:
         logger.error("Error en el proceso de guardado de señales")
